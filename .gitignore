@@ -1,0 +1,56 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+goauth
+
+# Test binary, built with `go test -c`
+*.test
+
+# Code coverage profiles
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Logs
+*.log
+logs/
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker
+.dockerignore
+
+# Test files
+test.html
+test*.go
+*_test_temp.go
