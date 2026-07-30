@@ -2,11 +2,15 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"goAuthHTTP/internal/repositories/mongodb"
 	"goAuthHTTP/pkg/utils"
 	"net/http"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Request/Response structs
@@ -31,6 +35,17 @@ type ChangeRoleResponse struct {
 
 type LogoutResponse struct {
 	Status bool `json:"status"`
+}
+
+type VerifyTokenRequest struct {
+	Token string `json:"token"`
+}
+
+type VerifyTokenResponse struct {
+	Status   bool   `json:"status"`
+	Id       string `json:"id"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
 }
 
 type ErrorResponse struct {
@@ -163,3 +178,38 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		Status: true,
 	})
 }
+
+// VerifyToken validates a JWT token from the request body and returns user details if valid
+func VerifyToken(w http.ResponseWriter, r *http.Request) {
+	var req VerifyTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
+		respondError(w, http.StatusBadRequest, "Token is required")
+		return
+	}
+
+	if utils.JwtStore.IsBlacklisted(req.Token) {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	parsedToken, err := jwt.Parse(req.Token, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("invalid signing method")
+		}
+		return []byte(jwtSecret), nil
+	})
+	if err != nil || !parsedToken.Valid {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	claims := parsedToken.Claims.(jwt.MapClaims)
+	respondJSON(w, http.StatusOK, VerifyTokenResponse{
+		Status:   true,
+		Id:       claims["uid"].(string),
+		Username: claims["user"].(string),
+		Role:     claims["role"].(string),
+	})
+}
+

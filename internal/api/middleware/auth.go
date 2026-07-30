@@ -19,6 +19,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			"/api/auth/register": true,
 			"/api/auth/login":    true,
 			"/api/auth/google":   true,
+			"/api/auth/verify":   true,
 			"/health":            true,
 		}
 

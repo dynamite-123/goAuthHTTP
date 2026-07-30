@@ -13,6 +13,13 @@ Register a new user
   "email": "test@example.com"
 }
 ```
+Response:
+```json
+{
+  "status": true,
+  "token": "jwt_token"
+}
+```
 
 ### POST /api/auth/login
 Login with username and password
@@ -20,6 +27,13 @@ Login with username and password
 {
   "username": "testuser",
   "password": "testpass"
+}
+```
+Response:
+```json
+{
+  "status": true,
+  "token": "jwt_token"
 }
 ```
 
@@ -30,11 +44,32 @@ Google OAuth login
   "id_token": "google_id_token_here"
 }
 ```
+Response:
+```json
+{
+  "access_token": "jwt_token",
+  "refresh_token": "jwt_token",
+  "user": {
+    "id": "...",
+    "username": "...",
+    "email": "...",
+    "role": "...",
+    "google_id": "...",
+    "picture": "..."
+  }
+}
+```
 
 ### POST /api/auth/logout
 Logout (requires Bearer token)
 ```json
 {}
+```
+Response:
+```json
+{
+  "status": true
+}
 ```
 
 ### POST /api/auth/change-role
@@ -43,6 +78,29 @@ Change user role (requires admin Bearer token)
 {
   "id": "user_id",
   "role": "admin"
+}
+```
+Response:
+```json
+{
+  "status": true
+}
+```
+
+### POST /api/auth/verify
+Verify a JWT token and get user details. Returns user info if valid, 401 if invalid or expired.
+```json
+{
+  "token": "jwt_token_here"
+}
+```
+Response:
+```json
+{
+  "status": true,
+  "id": "...",
+  "username": "...",
+  "role": "..."
 }
 ```
 
