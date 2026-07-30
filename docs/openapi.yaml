@@ -1,0 +1,745 @@
+openapi: 3.1.0
+info:
+  title: GoAuth HTTP API
+  version: 1.0.0
+  description: >
+    HTTP REST API authentication microservice built with Go. Provides user
+    registration, login (username/password and Google OAuth), JWT-based session
+    management, token verification, role management, and logout functionality.
+    Uses MongoDB Atlas for persistence and Argon2id for password hashing.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server (direct)
+  - url: http://localhost:8001
+    description: Local development server (Docker)
+
+tags:
+  - name: Authentication
+    description: User authentication, authorization, and session management endpoints.
+
+paths:
+  /health:
+    get:
+      tags:
+        - Authentication
+      operationId: healthCheck
+      summary: Health check
+      description: >
+        Returns a simple OK response indicating the service is running. This
+        endpoint is unauthenticated and is intended for load balancer and
+        container orchestrator health probes.
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            text/plain:
+              schema:
+                type: string
+                examples:
+                  - OK
+              examples:
+                healthy:
+                  value: OK
+
+  /api/auth/register:
+    post:
+      tags:
+        - Authentication
+      operationId: registerUser
+      summary: Register a new user
+      description: >
+        Creates a new user account with the provided username, email, and
+        password. The password is hashed using Argon2id before storage. A
+        default role of "user" is assigned. On success, returns a signed JWT
+        access token. This endpoint is unauthenticated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+            examples:
+              validRegistration:
+                summary: Standard registration
+                value:
+                  username: testuser
+                  password: testpass
+                  email: test@example.com
+      responses:
+        "200":
+          description: User registered successfully. Returns a JWT access token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+              examples:
+                success:
+                  summary: Successful registration
+                  value:
+                    status: true
+                    token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        "400":
+          description: Malformed or unparseable JSON request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidBody:
+                  summary: Invalid JSON
+                  value:
+                    error: Invalid request body
+        "500":
+          description: >
+            Internal server error. Could be caused by a database connection
+            failure, a duplicate username/email, a password hashing error, or a
+            token signing failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                dbError:
+                  summary: Database insertion error
+                  value:
+                    error: Error inserting data into mongodb
+                tokenError:
+                  summary: Token creation failure
+                  value:
+                    error: Could not create token
+
+  /api/auth/login:
+    post:
+      tags:
+        - Authentication
+      operationId: loginUser
+      summary: Login with username and password
+      description: >
+        Authenticates a user by verifying the provided username and password
+        against the stored Argon2id hash. On success, returns a signed JWT
+        access token containing the user's ID, username, and role. This
+        endpoint is unauthenticated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            examples:
+              validLogin:
+                summary: Standard login
+                value:
+                  username: testuser
+                  password: testpass
+      responses:
+        "200":
+          description: Authentication successful. Returns a JWT access token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+              examples:
+                success:
+                  summary: Successful login
+                  value:
+                    status: true
+                    token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        "400":
+          description: Malformed or unparseable JSON request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidBody:
+                  summary: Invalid JSON
+                  value:
+                    error: Invalid request body
+        "401":
+          description: >
+            Authentication failed. Either the username does not exist or the
+            password does not match.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                badCredentials:
+                  summary: Incorrect credentials
+                  value:
+                    error: Incorrect username or password
+        "500":
+          description: Internal server error during token generation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                tokenError:
+                  summary: Token creation failure
+                  value:
+                    error: Could not create token
+
+  /api/auth/google:
+    post:
+      tags:
+        - Authentication
+      operationId: googleLogin
+      summary: Google OAuth login
+      description: >
+        Authenticates a user using a Google ID token. The token is verified
+        against Google's token validation API using the configured
+        GOOGLE_CLIENT_ID. If the user does not exist, a new account is created
+        automatically. If a user with the same email already exists (registered
+        via username/password), the account is linked by updating the Google ID
+        and profile picture. Returns both an access token and a refresh token
+        along with the user profile. This endpoint is unauthenticated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleLoginRequest"
+            examples:
+              validGoogleLogin:
+                summary: Google ID token login
+                value:
+                  id_token: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.google_id_token...
+      responses:
+        "200":
+          description: >
+            Google authentication successful. Returns access and refresh tokens
+            along with the user profile. The password field is always omitted
+            from the user object.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleLoginResponse"
+              examples:
+                success:
+                  summary: Successful Google login
+                  value:
+                    access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    user:
+                      id: 664f1a2b3c4d5e6f7a8b9c0d
+                      username: John Doe
+                      email: john@gmail.com
+                      role: user
+                      google_id: "117012345678901234567"
+                      picture: https://lh3.googleusercontent.com/a/photo.jpg
+        "400":
+          description: Malformed or unparseable JSON request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidBody:
+                  summary: Invalid JSON
+                  value:
+                    error: Invalid request body
+        "401":
+          description: The provided Google ID token is invalid or expired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidToken:
+                  summary: Invalid Google token
+                  value:
+                    error: Invalid Google ID token
+        "500":
+          description: >
+            Internal server error. Could be caused by database operations
+            (user lookup, creation, or update) or JWT token generation failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                userLookupError:
+                  summary: User lookup failure
+                  value:
+                    error: Error checking for existing user
+                tokenError:
+                  summary: Token creation failure
+                  value:
+                    error: Could not create access token
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Authentication
+      operationId: logoutUser
+      summary: Logout and revoke token
+      description: >
+        Logs out the currently authenticated user by adding their JWT token to
+        an in-memory blacklist. The token remains blacklisted until its natural
+        expiration time, after which it is cleaned up by a background goroutine
+        that runs every 2 minutes. Requires a valid Bearer token in the
+        Authorization header (enforced by the auth middleware).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Token successfully blacklisted. User is logged out.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogoutResponse"
+              examples:
+                success:
+                  summary: Successful logout
+                  value:
+                    status: true
+        "401":
+          description: >
+            Missing, empty, invalid, or already-revoked Bearer token. Also
+            returned if required JWT claims (role, uid, user, exp) are missing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missingToken:
+                  summary: No authorization header
+                  value:
+                    error: Unauthorized access
+                revokedToken:
+                  summary: Token already revoked
+                  value:
+                    error: Token has been revoked (logged out)
+        "500":
+          description: Failed to retrieve the token expiry time from the request context.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                expiryError:
+                  summary: Expiry retrieval failure
+                  value:
+                    error: Failed to retrieve token expiry time
+
+  /api/auth/change-role:
+    post:
+      tags:
+        - Authentication
+      operationId: changeUserRole
+      summary: Change a user's role
+      description: >
+        Updates the role of a specified user. This is a privileged operation
+        that requires the caller to have the "super_admin" role. The caller's
+        role is extracted from the JWT token by the auth middleware and verified
+        by the authorization utility. Requires a valid Bearer token with
+        super_admin privileges.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeRoleRequest"
+            examples:
+              promoteToAdmin:
+                summary: Promote user to admin
+                value:
+                  id: 664f1a2b3c4d5e6f7a8b9c0d
+                  role: admin
+      responses:
+        "200":
+          description: User role updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeRoleResponse"
+              examples:
+                success:
+                  summary: Role changed
+                  value:
+                    status: true
+        "400":
+          description: Malformed or unparseable JSON request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidBody:
+                  summary: Invalid JSON
+                  value:
+                    error: Invalid request body
+        "401":
+          description: >
+            Missing, invalid, or expired Bearer token. Also returned if
+            required JWT claims are missing from the token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missingToken:
+                  summary: No authorization header
+                  value:
+                    error: Authorization token unavailable
+        "403":
+          description: >
+            The authenticated user does not have the required "super_admin"
+            role to perform this operation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                insufficientPermissions:
+                  summary: Not a super admin
+                  value:
+                    error: "user not authorized for access: insufficient permissions"
+        "500":
+          description: >
+            Internal server error. Could be caused by an invalid user ID format
+            or a database update failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidId:
+                  summary: Invalid user ID
+                  value:
+                    error: Invalid ID
+                dbError:
+                  summary: Database update failure
+                  value:
+                    error: "Error updating user with ID: 664f1a2b3c4d5e6f7a8b9c0d"
+
+  /api/auth/verify:
+    post:
+      tags:
+        - Authentication
+      operationId: verifyToken
+      summary: Verify a JWT token
+      description: >
+        Validates a JWT token provided in the request body and returns the
+        decoded user details (ID, username, role) if the token is valid. Checks
+        that the token uses HMAC signing, is not expired, and has not been
+        blacklisted (logged out). This endpoint is unauthenticated and is
+        designed for inter-service token verification.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyTokenRequest"
+            examples:
+              validToken:
+                summary: Token verification request
+                value:
+                  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        "200":
+          description: Token is valid. Returns the decoded user information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyTokenResponse"
+              examples:
+                success:
+                  summary: Valid token
+                  value:
+                    status: true
+                    id: 664f1a2b3c4d5e6f7a8b9c0d
+                    username: testuser
+                    role: user
+        "400":
+          description: >
+            The request body is malformed, unparseable, or the token field is
+            missing/empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missingToken:
+                  summary: Token not provided
+                  value:
+                    error: Token is required
+        "401":
+          description: >
+            The token is invalid, expired, uses an unsupported signing method,
+            or has been blacklisted (user logged out).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidToken:
+                  summary: Invalid or expired token
+                  value:
+                    error: Unauthorized
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT access token obtained from the login, register, or Google OAuth
+        endpoints. The token is signed with HS256 using the server's JWT_SECRET
+        and contains claims for user ID (uid), username (user), role (role),
+        and expiration (exp). Default expiration is 15 minutes unless
+        configured via the JWT_EXPIRES_IN environment variable.
+
+  schemas:
+    RegisterRequest:
+      type: object
+      description: Request body for user registration. All fields are required.
+      required:
+        - username
+        - password
+        - email
+      properties:
+        username:
+          type: string
+          description: The desired username for the new account.
+          examples:
+            - testuser
+        password:
+          type: string
+          description: >
+            The plaintext password. Will be hashed using Argon2id with a random
+            16-byte salt before storage.
+          examples:
+            - testpass
+        email:
+          type: string
+          format: email
+          description: The user's email address. Must be unique across the system.
+          examples:
+            - test@example.com
+
+    LoginRequest:
+      type: object
+      description: Request body for username/password authentication.
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: The registered username.
+          examples:
+            - testuser
+        password:
+          type: string
+          description: The user's plaintext password to verify against the stored hash.
+          examples:
+            - testpass
+
+    LoginResponse:
+      type: object
+      description: >
+        Successful authentication response containing a status flag and a
+        signed JWT access token. Used by both the register and login endpoints.
+      properties:
+        status:
+          type: boolean
+          description: Indicates whether the operation was successful.
+          examples:
+            - true
+        token:
+          type: string
+          description: >
+            A signed JWT access token (HS256). Contains claims: uid (user ID),
+            user (username), role, and exp (expiration timestamp).
+          examples:
+            - eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+    GoogleLoginRequest:
+      type: object
+      description: >
+        Request body for Google OAuth authentication. Contains the ID token
+        obtained from Google's OAuth2 flow.
+      required:
+        - id_token
+      properties:
+        id_token:
+          type: string
+          description: >
+            A Google-issued ID token. Verified against Google's token
+            validation service using the server's GOOGLE_CLIENT_ID.
+          examples:
+            - eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.google_id_token...
+
+    GoogleLoginResponse:
+      type: object
+      description: >
+        Successful Google OAuth response containing access and refresh tokens
+        along with the authenticated user's profile. The password field is
+        always stripped from the user object before responding.
+      properties:
+        access_token:
+          type: string
+          description: A signed JWT access token (HS256) for API authorization.
+          examples:
+            - eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refresh_token:
+          type: string
+          description: >
+            A signed JWT refresh token. In the current implementation, this
+            uses the same token generation mechanism as the access token.
+          examples:
+            - eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      description: >
+        User profile object stored in MongoDB. Fields use the omitempty JSON
+        tag, so empty/zero-value fields are omitted from the response.
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectID hex string uniquely identifying the user.
+          examples:
+            - 664f1a2b3c4d5e6f7a8b9c0d
+        username:
+          type: string
+          description: >
+            The user's display name. Set during registration or derived from
+            the Google profile name for OAuth users.
+          examples:
+            - testuser
+        email:
+          type: string
+          format: email
+          description: The user's email address.
+          examples:
+            - test@example.com
+        role:
+          type: string
+          description: >
+            The user's authorization role. Defaults to "user" on account
+            creation. Can be changed by a super_admin via the change-role
+            endpoint.
+          examples:
+            - user
+        google_id:
+          type: string
+          description: >
+            The Google account subject identifier (sub claim). Present only
+            for users who have authenticated via Google OAuth.
+          examples:
+            - "117012345678901234567"
+        picture:
+          type: string
+          format: uri
+          description: >
+            URL to the user's Google profile picture. Present only for users
+            who have authenticated via Google OAuth.
+          examples:
+            - https://lh3.googleusercontent.com/a/photo.jpg
+
+    ChangeRoleRequest:
+      type: object
+      description: >
+        Request body for changing a user's role. Only accessible by users
+        with the "super_admin" role.
+      required:
+        - id
+        - role
+      properties:
+        id:
+          type: string
+          description: >
+            The MongoDB ObjectID hex string of the user whose role is to be
+            changed.
+          examples:
+            - 664f1a2b3c4d5e6f7a8b9c0d
+        role:
+          type: string
+          description: The new role to assign to the user.
+          examples:
+            - admin
+
+    ChangeRoleResponse:
+      type: object
+      description: Response indicating that the role change operation completed successfully.
+      properties:
+        status:
+          type: boolean
+          description: Indicates whether the role was changed successfully.
+          examples:
+            - true
+
+    LogoutResponse:
+      type: object
+      description: >
+        Response indicating that the user's token has been blacklisted and the
+        logout was successful.
+      properties:
+        status:
+          type: boolean
+          description: Indicates whether the logout was successful.
+          examples:
+            - true
+
+    VerifyTokenRequest:
+      type: object
+      description: >
+        Request body for token verification. Contains the JWT token to validate.
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: The JWT access token to verify.
+          examples:
+            - eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+    VerifyTokenResponse:
+      type: object
+      description: >
+        Response returned when a token is successfully verified. Contains the
+        decoded user claims from the JWT payload.
+      properties:
+        status:
+          type: boolean
+          description: Indicates that the token is valid.
+          examples:
+            - true
+        id:
+          type: string
+          description: The user's ID extracted from the "uid" JWT claim.
+          examples:
+            - 664f1a2b3c4d5e6f7a8b9c0d
+        username:
+          type: string
+          description: The username extracted from the "user" JWT claim.
+          examples:
+            - testuser
+        role:
+          type: string
+          description: The user's role extracted from the "role" JWT claim.
+          examples:
+            - user
+
+    ErrorResponse:
+      type: object
+      description: >
+        Standard error response returned by all endpoints when an error occurs.
+        Contains a human-readable error message.
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: A human-readable description of the error.
+          examples:
+            - Invalid request body
