@@ -38,6 +38,7 @@ func main() {
 	mux.HandleFunc("/api/auth/google", handlers.GoogleLogin)
 	mux.HandleFunc("/api/auth/logout", handlers.Logout)
 	mux.HandleFunc("/api/auth/change-role", handlers.ChangeRole)
+	mux.HandleFunc("/api/auth/verify", handlers.VerifyToken)
 
 	// Apply middleware
 	handler := middleware.CORSMiddleware(middleware.AuthMiddleware(mux))
