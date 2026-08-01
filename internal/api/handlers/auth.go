@@ -103,6 +103,20 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Basic field validation
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" || req.Password == "" {
+		respondError(w, http.StatusBadRequest, "Username and password are required")
+		return
+	}
+
+	// Check if username already exists
+	existingUser, err := mongodb.GetUserByUsername(r.Context(), req.Username)
+	if err == nil && existingUser != nil {
+		respondError(w, http.StatusConflict, "Username is already taken")
+		return
+	}
+
 	user, err := mongodb.AddUserToDB(r.Context(), &req)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
