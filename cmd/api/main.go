@@ -8,17 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-
-	"github.com/joho/godotenv"
 )
-
-func init() {
-	// Load .env file if it exists (optional for Docker deployments)
-	err := godotenv.Load()
-	if err != nil {
-		log.Println("No .env file found, using environment variables")
-	}
-}
 
 func main() {
 	// Triggers every 2 minutes and cleans up all the expired tokens
